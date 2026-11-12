@@ -1,0 +1,37 @@
+name: Test
+
+# Installs every app in the bucket with Scoop on Windows and runs it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Scoop
+        shell: pwsh
+        run: |
+          Invoke-RestMethod -Uri https://get.scoop.sh -OutFile install.ps1
+          # GitHub's runners run as administrator, which Scoop must be told.
+          .\install.ps1 -RunAsAdmin
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE\scoop\shims"
+      - name: Install fftui from this bucket
+        shell: pwsh
+        run: |
+          scoop bucket add part-avocado $env:GITHUB_WORKSPACE
+          scoop install part-avocado/fftui
+          if ($LASTEXITCODE -ne 0) { throw "scoop install failed" }
+          $version = (Get-Content bucket/fftui.json | ConvertFrom-Json).version
+          $out = fftui --version
+          Write-Output $out
+          if ($out -ne "fftui $version") { throw "fftui --version printed '$out'" }
+          # The ffmpeg dependency came along.
+          ffmpeg -hide_banner -version | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { throw "ffmpeg was not installed" }

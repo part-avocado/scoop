@@ -1,0 +1,54 @@
+name: Update fftui
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-fftui
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_REPO: part-avocado/fftui
+      MANIFEST: bucket/fftui.json
+    steps:
+      - uses: actions/checkout@v7
+      - name: Point manifest at latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api "repos/${SOURCE_REPO}/releases/latest" -q .tag_name)"
+          version="${tag#v}"
+          base="https://github.com/${SOURCE_REPO}/releases/download/${tag}"
+          sums="$(curl -fsSL "${base}/checksums.txt")"
+          hash() {
+            h="$(awk -v f="fftui_${version}_windows_$1.zip" '$2 == f { print $1 }' <<<"$sums")"
+            [ -n "$h" ] || { echo "no checksum for windows_$1 in ${tag}" >&2; exit 1; }
+            echo "$h"
+          }
+          jq --indent 4 \
+            --arg v "$version" --arg base "$base" \
+            --arg amd64 "$(hash amd64)" --arg i386 "$(hash 386)" --arg arm64 "$(hash arm64)" '
+            .version = $v
+            | .architecture["64bit"] = {url: "\($base)/fftui_\($v)_windows_amd64.zip", hash: $amd64}
+            | .architecture["32bit"] = {url: "\($base)/fftui_\($v)_windows_386.zip", hash: $i386}
+            | .architecture.arm64 = {url: "\($base)/fftui_\($v)_windows_arm64.zip", hash: $arm64}
+            ' "$MANIFEST" > manifest.json
+          mv manifest.json "$MANIFEST"
+          git diff
+
+          if git diff --quiet; then
+            echo "Manifest already points at ${tag}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "fftui ${version}"
+          git push
