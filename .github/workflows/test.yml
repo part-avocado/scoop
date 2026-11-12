@@ -25,8 +25,14 @@ jobs:
       - name: Install fftui from this bucket
         shell: pwsh
         run: |
-          scoop bucket add part-avocado $env:GITHUB_WORKSPACE
-          scoop install part-avocado/fftui
+          # Scoop only adds buckets from Git URLs, so pushes test the published
+          # bucket the way users add it, and pull requests test the manifest file.
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+            scoop install bucket\fftui.json
+          } else {
+            scoop bucket add part-avocado "https://github.com/$env:GITHUB_REPOSITORY"
+            scoop install part-avocado/fftui
+          }
           if ($LASTEXITCODE -ne 0) { throw "scoop install failed" }
           $version = (Get-Content bucket/fftui.json | ConvertFrom-Json).version
           $out = fftui --version
